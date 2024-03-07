@@ -23,12 +23,12 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
       conn.recvPayloadFragmented(frameHeader):
         case payload.kind:
         of Text:
-          if frameHeader.fin == 1:
+          if frameHeader.isFin():
             echo "recv text (fragmented last): ", payload.str
           else:
             echo "recv text (fragmented): ", payload.str
         of Binary:
-          if frameHeader.fin == 1:
+          if frameHeader.isFin():
             echo "recv binary (fragmented last): ", payload.str
           else:
             echo "recv binary (fragmented): ", payload.str

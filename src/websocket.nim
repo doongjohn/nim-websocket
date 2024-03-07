@@ -9,9 +9,8 @@ import utils
 
 # TODO
 # 1. max size of seq is `high(int)` but max size of websocket payload is `high(uint64)`
-# 2. implement ping/pong frame
-# 3. implement send
-# 4. implement client
+# 2. implement send
+# 3. implement client
 
 
 type
@@ -32,6 +31,8 @@ type
     Text
     Binary
     Close
+    Ping
+    Pong
     Invalid
 
   WebSocketPayload* = object
@@ -42,6 +43,10 @@ type
       bytes*: seq[byte]
     of Close:
       code*: uint16
+    of Ping:
+      pingBytes*: seq[byte]
+    of Pong:
+      pongBytes*: seq[byte]
     of Invalid:
       discard
 
@@ -58,6 +63,10 @@ type
     isFragmented = false
     initialFrameOpcode: byte = 0
     payloadBuf: seq[byte] = @[]
+
+
+proc isFin*(frameHeader: WebSocketFrameHeader): bool =
+  frameHeader.fin == 1
 
 
 proc newWebSocketServer*(socket: AsyncSocket): WebSocketConn =
@@ -134,6 +143,7 @@ proc recvBytes(socket: AsyncSocket, size: static int): Future[array[size, byte]]
 
 
 proc recvPayloadLen(socket: AsyncSocket, payloadLen: uint64): Future[uint64] {.async.} =
+  ## https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers#decoding_payload_length
   result = payloadLen
   case result:
   of 126:
@@ -160,6 +170,7 @@ template recvPayload(socket: AsyncSocket, payloadLen: uint64, payload: var seq[b
 
 
 template decodePayload(maskingKey: array[4, byte], payload: var seq[byte]) =
+  ## https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers#reading_and_unmasking_the_data
   for i in 0 ..< payload.len():
     payload[i] = payload[i] xor maskingKey[i mod 4]
 
@@ -227,6 +238,10 @@ proc recvFramePayload*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): 
       return WebSocketPayload(kind: Binary, bytes: conn.payloadBuf)
     of 8:
       return WebSocketPayload(kind: Close, code: fromBigEndian[uint16](conn.payloadBuf[0].addr()))
+    of 9:
+      return WebSocketPayload(kind: Ping, pingBytes: conn.payloadBuf)
+    of 10:
+      return WebSocketPayload(kind: Pong, pongBytes: conn.payloadBuf)
     else:
       return WebSocketPayload(kind: Invalid)
 
