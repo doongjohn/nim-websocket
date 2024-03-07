@@ -17,7 +17,13 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
         of Close:
           echo "recv close: ", payload.code
           break
-        else:
+        of Ping:
+          echo "recv ping: ", payload.pingBytes
+          var pongPayload = WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes)
+          asyncCheck conn.send(pongPayload)
+        of Pong:
+          echo "recv pong: ", payload.pongBytes
+        of Invalid:
           discard
 
       conn.recvPayloadFragmented(frameHeader):

@@ -9,6 +9,7 @@ import utils
 
 
 # TODO: max size of seq is `high(int)` but max size of websocket payload is `high(uint64)`
+# TODO: send multiple times if payload is bigger than `high(int)`
 
 
 type
@@ -57,10 +58,14 @@ type
   WebSocketConn* = ref object
     socket*: AsyncSocket
     isServer: bool
+
+    # recv data
     isRecvInitialFrame = true
     isRecvFragmented = false
     initialFrameOpcode: byte = 0
     payloadBuf: seq[byte] = @[]
+
+    # send data
     isSendFragmented = false
 
 
@@ -198,8 +203,8 @@ template recvPayload(socket: AsyncSocket, payloadLen: uint64, payload: var seq[b
 
 proc maskPayload(payload: var openArray[byte]): array[4, byte] =
   ## https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers#reading_and_unmasking_the_data
-  let num = rand(0'u32 .. uint32.high())
-  copyMem(result[0].addr(), num.addr(), sizeof(num))
+  let maskingKey = rand(0'u32 .. uint32.high())
+  copyMem(result[0].addr(), maskingKey.addr(), sizeof(maskingKey))
   for i in 0 ..< payload.len():
     payload[i] = payload[i] xor result[i mod 4]
 
