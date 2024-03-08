@@ -5,13 +5,23 @@ import websocket
 
 proc webSocketLoop(conn: WebSocketConn) {.async.} =
   try:
+    let payload1 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "1 message from server!"))
+    let payload2 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "2 message from server!"))
+    let payload3 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "3 message from server!"))
+    let payload4 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "4 message from server!"))
+    await all([
+      conn.send(payload1),
+      conn.send(payload2),
+      conn.send(payload3),
+      conn.send(payload4),
+    ])
+
     while not conn.isClosed():
       let frameHeader = await conn.recvFrameHeader()
 
-      if conn.isServer() and frameHeader.isMasked != 1 or
-         conn.isClient() and frameHeader.isMasked == 1:
-          await conn.close(1002'u16)
-          break
+      if not conn.isValidMask(frameHeader):
+        await conn.close(1002'u16)
+        break
 
       conn.recvPayloadSingle(frameHeader):
         case payload.kind:
@@ -24,8 +34,8 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
           break
         of Ping:
           echo "recv ping: ", payload.pingBytes
-          var pongPayload = WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes)
-          asyncCheck conn.send(pongPayload)
+          var pongPayload = conn.serializeSingle(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
+          await conn.send(pongPayload)
         of Pong:
           echo "recv pong: ", payload.pongBytes
         of Invalid:
@@ -66,6 +76,7 @@ proc acceptCallback(req: Request) {.async.} =
 proc main {.async.} =
   var server = newAsyncHttpServer()
   server.listen(Port(8001), "localhost")
+  echo "websocket server start"
   while true:
     if server.shouldAcceptRequest():
       await server.acceptRequest(acceptCallback)
