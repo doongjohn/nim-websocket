@@ -435,7 +435,8 @@ proc send*(conn: WebSocketConn, payloadBytes: WebSocketPayloadBytes): Future[voi
 
 
 proc close*(conn: WebSocketConn, code: uint16) {.async.} =
-  ## Send the close frame.
-  let payload = conn.serializeSingle(WebSocketPayload(kind: Close, code: code))
-  await conn.send(payload)
-  conn.deinit()
+  ## Send the close frame and close tcp socket.
+  if not conn.isClosed():
+    let payload = conn.serializeSingle(WebSocketPayload(kind: Close, code: code))
+    await conn.send(payload)
+    conn.deinit()
