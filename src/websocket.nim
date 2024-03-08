@@ -4,6 +4,8 @@ import std/random
 import std/asyncnet
 import std/asyncdispatch
 import std/asynchttpserver
+import std/httpclient
+import std/uri
 import pkg/checksums/sha1
 import utils
 
@@ -19,6 +21,9 @@ template newWebSocketRecvError*: untyped =
 
 template newWebSocketSendError*: untyped =
   newException(WebSocketSendError, "send failed")
+
+
+const magicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
 type
@@ -148,6 +153,44 @@ proc deinit*(conn: WebSocketConn) =
     conn.socket.close()
 
 
+proc connect*(url: Uri | string, protocol: string): Future[WebSocketConn] {.async.} =
+  randomize()
+  var client = newAsyncHttpClient()
+
+  try:
+    var rndNums: array[16, uint8]
+    for n in rndNums.mitems():
+      n = rand(0'u8 .. uint8.high())
+
+    let webSocketKey = rndNums.encode()
+    let acceptKey = base64.encode(cast[array[20, uint8]](secureHash(webSocketKey & magicString)))
+
+    let headers = newHttpHeaders({
+      "Upgrade": "websocket",
+      "Connection": "Upgrade",
+      "Sec-WebSocket-Key": webSocketKey,
+      "Sec-WebSocket-Version": "13",
+    })
+    if protocol != "":
+      headers.add("Sec-WebSocket-Protocol", protocol)
+
+    let resp = await client.request(url, httpMethod = HttpGet, headers = headers, body = "")
+
+    # TODO: more checks
+    # check response
+    let serverAcceptKey = resp.headers.getOrDefault("Sec-WebSocket-Accept")
+    if serverAcceptKey == acceptKey:
+      return newWebSocketClient(client.getSocket())
+    else:
+      return nil
+
+  except Defect:
+    return nil
+
+  except CatchableError:
+    return nil
+
+
 proc handshake*(req: Request, protocol: string): Future[bool] {.async.} =
   ## Try handshake.
   ## Return false if handshake fails.
@@ -164,7 +207,6 @@ proc handshake*(req: Request, protocol: string): Future[bool] {.async.} =
     await req.respond(Http400, "", newHttpHeaders())
     return false
 
-  const magicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   let acceptKey = base64.encode(cast[array[20, uint8]](secureHash(webSocketKey & magicString)))
 
   await req.respond(Http101, "", newHttpHeaders({

@@ -1,21 +1,10 @@
 import std/asyncdispatch
 import std/asynchttpserver
-import websocket
+import ../src/websocket
 
 
 proc webSocketLoop(conn: WebSocketConn) {.async.} =
   try:
-    let payload1 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "1 message from server!"))
-    let payload2 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "2 message from server!"))
-    let payload3 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "3 message from server!"))
-    let payload4 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "4 message from server!"))
-    await all([
-      conn.send(payload1),
-      conn.send(payload2),
-      conn.send(payload3),
-      conn.send(payload4),
-    ])
-
     while not conn.isClosed():
       let frameHeader = await conn.recvFrameHeader()
 
@@ -27,6 +16,8 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
         case payload.kind:
         of Text:
           echo "recv text: ", payload.str
+          let textPayload = conn.serializeSingle(WebSocketPayload(kind: Text, str: "client: text recv success!"))
+          await conn.send(textPayload)
         of Binary:
           echo "recv binary: ", payload.bytes
         of Close:
@@ -66,20 +57,11 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
     conn.deinit()
 
 
-proc acceptCallback(req: Request) {.async.} =
-  if req.url.path == "/test":
-    let conn = await webSocketAccept(req, "")
-    if not conn.isNil():
-      await conn.webSocketLoop()
-
-
 proc main {.async.} =
-  var server = newAsyncHttpServer()
-  server.listen(Port(8001), "localhost")
-  echo "websocket server start"
-  while true:
-    if server.shouldAcceptRequest():
-      await server.acceptRequest(acceptCallback)
+  echo "websocket client start"
+  let conn = await connect("ws://localhost:8001/test", "")
+  if not conn.isNil():
+    await conn.webSocketLoop()
 
 
 waitFor main()
