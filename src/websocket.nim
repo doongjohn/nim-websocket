@@ -122,6 +122,14 @@ proc isClient*(conn: WebSocketConn): bool =
 
 
 proc isValidMask*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): bool =
+  ## The server MUST close the connection upon receiving a
+  ## frame that is not masked.  In this case, a server MAY send a Close
+  ## frame with a status code of 1002 (protocol error) as defined in
+  ## Section 7.4.1.  A server MUST NOT mask any frames that it sends to
+  ## the client.  A client MUST close a connection if it detects a masked
+  ## frame.  In this case, it MAY use the status code 1002 (protocol
+  ## error) as defined in Section 7.4.1.
+  ## <https://datatracker.ietf.org/doc/html/rfc6455#section-5.1>
   conn.isServer() and frameHeader.isMasked == 1 or
   conn.isClient() and frameHeader.isMasked != 1
 
