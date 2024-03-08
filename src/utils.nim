@@ -44,8 +44,7 @@ proc toBigEndian*[T: SomeInteger](value: T, outPtr: pointer) =
       {.error: "unsupported type".}
 
 
-proc stringFromBytes*(s: openArray[byte]): string =
-  var str = newStringOfCap(s.len())
-  str.setLen(s.len())
-  copyMem(str[0].addr(), s[0].addr(), s.len())
-  return str
+proc stringFromBytes*(bytes: openArray[byte]): string =
+  result = newStringOfCap(bytes.len())
+  result.setLen(bytes.len())
+  copyMem(result[0].addr(), bytes[0].addr(), bytes.len())
