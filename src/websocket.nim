@@ -408,7 +408,7 @@ proc serializeSingle*(conn: WebSocketConn, payload: WebSocketPayload): WebSocket
   )
 
 
-proc serializeFragmentStart*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloadBytes =
+proc serializeFragmentedStart*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloadBytes =
   WebSocketPayloadBytes(
     kind: payload.kind,
     data: block:
@@ -436,7 +436,7 @@ proc serializeFragmentStart*(conn: WebSocketConn, payload: WebSocketPayload): We
   )
 
 
-proc serializeFragment*(conn: WebSocketConn, fin: bool, payload: WebSocketPayload): WebSocketPayloadBytes =
+proc serializeFragmented*(conn: WebSocketConn, fin: bool, payload: WebSocketPayload): WebSocketPayloadBytes =
   WebSocketPayloadBytes(
     kind: payload.kind,
     data: block:
