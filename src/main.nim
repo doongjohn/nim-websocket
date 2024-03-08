@@ -8,6 +8,11 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
     while not conn.isClosed():
       let frameHeader = await conn.recvFrameHeader()
 
+      if conn.isServer() and frameHeader.isMasked != 1 or
+         conn.isClient() and frameHeader.isMasked == 1:
+          await conn.close(1002'u16)
+          break
+
       conn.recvPayloadSingle(frameHeader):
         case payload.kind:
         of Text:

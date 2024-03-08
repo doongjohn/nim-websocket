@@ -7,4 +7,4 @@ Websocket server/client implementaion in Nim language.
 - [x] Websocket server
 - [ ] Websocket client
 - [x] Fragmentation
-- [ ] Ping/Pong frame
+- [x] Ping/Pong frame

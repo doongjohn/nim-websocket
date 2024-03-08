@@ -34,7 +34,7 @@ type
     Pong
     Invalid
 
-  WebSocketPayload* = object
+  WebSocketPayload* = ref object
     case kind*: WebSocketPayloadType
     of Text:
       str*: string
@@ -55,21 +55,25 @@ type
     isMasked*: byte
     payloadLen*: uint64
 
+  WebSocketRole* = enum
+    Server
+    Client
+
   WebSocketConn* = ref object
-    socket*: AsyncSocket
-    isServer: bool
+    socket: AsyncSocket
+    role: WebSocketRole
 
     # recv data
     isRecvInitialFrame = true
     isRecvFragmented = false
     initialFrameOpcode: byte = 0
-    payloadBuf: seq[byte] = @[]
+    recvPayloadBuf: seq[byte] = @[]
 
     # send data
     isSendFragmented = false
 
 
-proc payloadTypeToByte*(payloadType: WebSocketPayloadType): byte =
+proc toByte*(payloadType: WebSocketPayloadType): byte =
   case payloadType
   of Text: 0x1
   of Binary: 0x2
@@ -83,7 +87,7 @@ proc isFin*(frameHeader: WebSocketFrameHeader): bool =
   frameHeader.fin == 1
 
 
-proc encode*(frameHeader: WebSocketFrameHeader, payloadLen: uint64): seq[byte] =
+proc serialize*(frameHeader: WebSocketFrameHeader, payloadLen: uint64): seq[byte] =
   result = @[0'u8, 0'u8]
   result[0] = result[0].setMasked(frameHeader.fin shl 7)
   result[0] = result[0].setMasked(frameHeader.opcode)
@@ -92,43 +96,46 @@ proc encode*(frameHeader: WebSocketFrameHeader, payloadLen: uint64): seq[byte] =
     result[1] = result[1].setMasked(payloadLen.uint8)
   elif payloadLen <= uint16.high():
     result[1] = result[1].setMasked(126'u8)
-    result &= [0'u8, 0'u8]
+    result &= array[2, uint8].default()
     payloadLen.uint16().toBigEndian(result[2].addr())
   else:
     result[1] = result[1].setMasked(127'u8)
-    result &= [0'u8, 0'u8, 0'u8, 0'u8]
+    result &= array[8, uint8].default()
     payloadLen.toBigEndian(result[2].addr())
 
 
 proc newWebSocketServer*(socket: AsyncSocket): WebSocketConn =
-  WebSocketConn(socket: socket, isServer: true)
+  WebSocketConn(socket: socket, role: Server)
 
 
 proc newWebSocketClient*(socket: AsyncSocket): WebSocketConn =
-  WebSocketConn(socket: socket, isServer: false)
+  WebSocketConn(socket: socket, role: Client)
 
 
-proc resetState*(self: WebSocketConn) =
-  self.isRecvInitialFrame = true
-  self.isRecvFragmented = false
-  self.initialFrameOpcode = 0
-  self.payloadBuf = @[]
+proc isClosed*(conn: WebSocketConn): bool =
+  conn.socket.isClosed()
 
 
-proc deinit*(self: WebSocketConn) =
-  ## Close connection without sending the close frame.
-  self.resetState()
-  self.socket.close()
+proc isServer*(conn: WebSocketConn): bool =
+  conn.role == Server
 
 
-proc close*(self: WebSocketConn, code: byte) =
-  ## Close connection after sending the close frame.
-  # TODO: send close frame
-  self.deinit()
+proc isClient*(conn: WebSocketConn): bool =
+  conn.role == Client
 
 
-proc isClosed*(self: WebSocketConn): bool =
-  self.socket.isClosed()
+proc resetState*(conn: WebSocketConn) =
+  conn.isRecvInitialFrame = true
+  conn.isRecvFragmented = false
+  conn.initialFrameOpcode = 0
+  conn.recvPayloadBuf = @[]
+
+
+proc deinit*(conn: WebSocketConn) =
+  ## Close the socket.
+  conn.resetState()
+  if not conn.socket.isClosed():
+    conn.socket.close()
 
 
 proc handshake*(req: Request, protocol: string): Future[bool] {.async.} =
@@ -252,43 +259,35 @@ proc recvFramePayload*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): 
       conn.isRecvFragmented = true
 
   # resize payload buffer
-  conn.payloadBuf.setLen(payloadLen)
+  conn.recvPayloadBuf.setLen(payloadLen)
 
   if isMasked == 1:
     # recv masked payload
     let maskingKey = await conn.socket.recvMaskingKey()
-    conn.socket.recvPayload(payloadLen, conn.payloadBuf)
-    unmaskPayload(maskingKey, conn.payloadBuf)
+    conn.socket.recvPayload(payloadLen, conn.recvPayloadBuf)
+    unmaskPayload(maskingKey, conn.recvPayloadBuf)
   else:
     # recv unmasked payload
-    conn.socket.recvPayload(payloadLen, conn.payloadBuf)
+    conn.socket.recvPayload(payloadLen, conn.recvPayloadBuf)
 
-  # return payload
+  # return fragmented payload
   if conn.isRecvFragmented:
     defer:
       if fin == 1:
         conn.resetState()
-    case conn.initialFrameOpcode:
-    of 0x1:
-      return WebSocketPayload(kind: Text, str: stringFromBytes(conn.payloadBuf))
-    of 0x2:
-      return WebSocketPayload(kind: Binary, bytes: conn.payloadBuf)
-    else:
-      return WebSocketPayload(kind: Invalid)
-  else:
-    case opcode:
-    of 0x1:
-      return WebSocketPayload(kind: Text, str: stringFromBytes(conn.payloadBuf))
-    of 0x2:
-      return WebSocketPayload(kind: Binary, bytes: conn.payloadBuf)
-    of 0x8:
-      return WebSocketPayload(kind: Close, code: fromBigEndian[uint16](conn.payloadBuf[0].addr()))
-    of 0x9:
-      return WebSocketPayload(kind: Ping, pingBytes: conn.payloadBuf)
-    of 0xA:
-      return WebSocketPayload(kind: Pong, pongBytes: conn.payloadBuf)
-    else:
-      return WebSocketPayload(kind: Invalid)
+    return case conn.initialFrameOpcode:
+      of 0x1: WebSocketPayload(kind: Text, str: stringFromBytes(conn.recvPayloadBuf))
+      of 0x2: WebSocketPayload(kind: Binary, bytes: conn.recvPayloadBuf)
+      else: WebSocketPayload(kind: Invalid)
+
+  # return single payload
+  case opcode:
+  of 0x1: WebSocketPayload(kind: Text, str: stringFromBytes(conn.recvPayloadBuf))
+  of 0x2: WebSocketPayload(kind: Binary, bytes: conn.recvPayloadBuf)
+  of 0x8: WebSocketPayload(kind: Close, code: fromBigEndian[uint16](conn.recvPayloadBuf[0].addr()))
+  of 0x9: WebSocketPayload(kind: Ping, pingBytes: conn.recvPayloadBuf)
+  of 0xA: WebSocketPayload(kind: Pong, pongBytes: conn.recvPayloadBuf)
+  else: WebSocketPayload(kind: Invalid)
 
 
 template recvPayloadSingle*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader, body: untyped) =
@@ -312,44 +311,44 @@ template recvPayloadFragmented*(conn: WebSocketConn, frameHeader: WebSocketFrame
           curFrameHeader = await conn.recvFrameHeader()
 
 
-proc send*(conn: WebSocketConn, payload: var WebSocketPayload): Future[void] =
+proc send*(conn: WebSocketConn, payload: WebSocketPayload): Future[void] =
   let frameHeader = WebSocketFrameHeader(
     fin: 1,
-    opcode: payloadTypeToByte(payload.kind),
-    isMasked: if conn.isServer: 0 else: 1,
+    opcode: payload.kind.toByte(),
+    isMasked: if conn.isServer(): 0 else: 1,
     payloadLen: 0,
   )
   conn.isSendFragmented = false
   case payload.kind
   of Text:
-    var buf = frameHeader.encode(payload.str.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.str.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.str)
     buf &= payload.str.toOpenArrayByte(0, payload.str.high())
     conn.socket.send(buf[0].addr(), buf.len())
   of Binary:
-    var buf = frameHeader.encode(payload.bytes.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.bytes.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.bytes)
     buf &= payload.bytes
     conn.socket.send(buf[0].addr(), buf.len())
   of Close:
-    var buf = frameHeader.encode(2'u64)
-    var codeBuf = [0'u8, 0'u8]
+    var buf = frameHeader.serialize(2'u64)
+    var codeBuf: array[2, uint8]
     payload.code.toBigEndian(codeBuf[0].addr())
-    if not conn.isServer:
+    if conn.isClient():
       buf &= maskPayload(codeBuf)
     buf &= codeBuf
     conn.socket.send(buf[0].addr(), buf.len())
   of Ping:
-    var buf = frameHeader.encode(payload.pingBytes.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.pingBytes.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.pingBytes)
     buf &= payload.pingBytes
     conn.socket.send(buf[0].addr(), buf.len())
   of Pong:
-    var buf = frameHeader.encode(payload.pongBytes.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.pongBytes.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.pongBytes)
     buf &= payload.pongBytes
     conn.socket.send(buf[0].addr(), buf.len())
@@ -359,28 +358,28 @@ proc send*(conn: WebSocketConn, payload: var WebSocketPayload): Future[void] =
     fut
 
 
-proc sendFragment*(conn: WebSocketConn, payload: var WebSocketPayload): Future[void] =
+proc sendFragment*(conn: WebSocketConn, payload: WebSocketPayload): Future[void] =
   let frameHeader = WebSocketFrameHeader(
     fin: 0,
     opcode:
       if not conn.isSendFragmented:
-        payloadTypeToByte(payload.kind)
+        payload.kind.toByte()
       else:
         0,
-    isMasked: if conn.isServer: 0 else: 1,
+    isMasked: if conn.isServer(): 0 else: 1,
     payloadLen: 0,
   )
   conn.isSendFragmented = true
   case payload.kind
   of Text:
-    var buf = frameHeader.encode(payload.str.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.str.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.str)
     buf &= payload.str.toOpenArrayByte(0, payload.str.high())
     conn.socket.send(buf[0].addr(), buf.len())
   of Binary:
-    var buf = frameHeader.encode(payload.bytes.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.bytes.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.bytes)
     buf &= payload.bytes
     conn.socket.send(buf[0].addr(), buf.len())
@@ -390,24 +389,24 @@ proc sendFragment*(conn: WebSocketConn, payload: var WebSocketPayload): Future[v
     fut
 
 
-proc sendFragmentEnd*(conn: WebSocketConn, payload: var WebSocketPayload): Future[void] =
+proc sendFragmentEnd*(conn: WebSocketConn, payload: WebSocketPayload): Future[void] =
   let frameHeader = WebSocketFrameHeader(
     fin: 1,
     opcode: 0,
-    isMasked: if conn.isServer: 0 else: 1,
+    isMasked: if conn.isServer(): 0 else: 1,
     payloadLen: 0,
   )
   conn.isSendFragmented = false
   case payload.kind
   of Text:
-    var buf = frameHeader.encode(payload.str.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.str.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.str)
     buf &= payload.str.toOpenArrayByte(0, payload.str.high())
     conn.socket.send(buf[0].addr(), buf.len())
   of Binary:
-    var buf = frameHeader.encode(payload.bytes.len().uint64)
-    if not conn.isServer:
+    var buf = frameHeader.serialize(payload.bytes.len().uint64)
+    if conn.isClient():
       buf &= maskPayload(payload.bytes)
     buf &= payload.bytes
     conn.socket.send(buf[0].addr(), buf.len())
@@ -415,3 +414,9 @@ proc sendFragmentEnd*(conn: WebSocketConn, payload: var WebSocketPayload): Futur
     var fut = newFuture[void]("websocket.sendFragmentEnd")
     fut.complete()
     fut
+
+
+proc close*(conn: WebSocketConn, code: uint16) {.async.} =
+  ## Send the close frame.
+  await conn.send(WebSocketPayload(kind: Close, code: code))
+  conn.deinit()
