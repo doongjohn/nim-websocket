@@ -8,10 +8,6 @@ import pkg/checksums/sha1
 import utils
 
 
-# TODO: max size of seq is `high(int)` but max size of websocket payload is `high(uint64)`
-# TODO: send multiple times if payload is bigger than `high(int)`
-
-
 type
   WebSocketRecvError* = object of IOError
   WebSocketSendError* = object of IOError
@@ -72,9 +68,6 @@ type
     isRecvFragmented = false
     initialFrameOpcode: byte = 0
     recvPayloadBuf: seq[byte] = @[]
-
-    # send data
-    isSendFragmented = false
 
 
 proc toByte*(payloadType: WebSocketPayloadType): byte =
