@@ -63,9 +63,15 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
 
 proc main {.async.} =
   echo "websocket client start"
-  let conn = await webSocketConnect("ws://localhost:8001/test", "")
-  if not conn.isNil():
-    await conn.webSocketLoop()
+
+  var conn: WebSocketConn
+  while conn.isNil():
+    conn = await webSocketConnect("ws://localhost:8001/test", "")
+    if conn.isNil():
+      echo "connecting..."
+      await sleepAsync(1000)
+
+  await conn.webSocketLoop()
 
 
 waitFor main()
