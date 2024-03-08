@@ -74,6 +74,9 @@ type
     initialFrameOpcode: byte = 0
     recvPayloadBuf: seq[byte] = @[]
 
+    # send data
+    isSendingFragmented = false
+
 
 proc toByte*(payloadType: WebSocketPayloadType): byte =
   case payloadType
@@ -144,6 +147,7 @@ proc resetState*(conn: WebSocketConn) =
   conn.isRecvFragmented = false
   conn.initialFrameOpcode = 0
   conn.recvPayloadBuf = @[]
+  conn.isSendingFragmented = false
 
 
 proc deinit*(conn: WebSocketConn) =
@@ -153,7 +157,7 @@ proc deinit*(conn: WebSocketConn) =
     conn.socket.close()
 
 
-proc connect*(url: Uri | string, protocol: string): Future[WebSocketConn] {.async.} =
+proc webSocketConnect*(url: Uri | string, protocol: string): Future[WebSocketConn] {.async.} =
   randomize()
   var client = newAsyncHttpClient()
 
@@ -166,6 +170,7 @@ proc connect*(url: Uri | string, protocol: string): Future[WebSocketConn] {.asyn
     let acceptKey = base64.encode(cast[array[20, uint8]](secureHash(webSocketKey & magicString)))
 
     let headers = newHttpHeaders({
+      "Host": $url,
       "Upgrade": "websocket",
       "Connection": "Upgrade",
       "Sec-WebSocket-Key": webSocketKey,
@@ -191,7 +196,7 @@ proc connect*(url: Uri | string, protocol: string): Future[WebSocketConn] {.asyn
     return nil
 
 
-proc handshake*(req: Request, protocol: string): Future[bool] {.async.} =
+proc webSocketHandshake*(req: Request, protocol: string): Future[bool] {.async.} =
   ## Try handshake.
   ## Return false if handshake fails.
   let
@@ -220,8 +225,8 @@ proc handshake*(req: Request, protocol: string): Future[bool] {.async.} =
 proc webSocketAccept*(req: Request, protocol: string): Future[WebSocketConn] {.async.} =
   ## Try handshake and return WebSocketConn.
   ## Return nil if handshake fails.
-  if await handshake(req, protocol):
-    randomize()
+  randomize()
+  if await webSocketHandshake(req, protocol):
     newWebSocketServer(req.client)
   else:
     nil
@@ -363,7 +368,7 @@ template recvPayloadFragmented*(conn: WebSocketConn, frameHeader: WebSocketFrame
           curFrameHeader = await conn.recvFrameHeader()
 
 
-proc serializeSingle*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloadBytes =
+proc payloadToBytes*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloadBytes =
   WebSocketPayloadBytes(
     kind: payload.kind,
     data: block:
@@ -408,43 +413,15 @@ proc serializeSingle*(conn: WebSocketConn, payload: WebSocketPayload): WebSocket
   )
 
 
-proc serializeFragmentedStart*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloadBytes =
-  WebSocketPayloadBytes(
-    kind: payload.kind,
-    data: block:
-      var data: seq[byte]
-      let frameHeader = WebSocketFrameHeader(
-        fin: 0,
-        opcode: payload.kind.toByte(),
-        isMasked: if conn.isServer(): 0 else: 1,
-        payloadLen: 0,
-      )
-      case payload.kind
-      of Text:
-        data &= frameHeader.serialize(payload.str.len().uint64)
-        if conn.isClient():
-          data &= maskPayload(payload.str)
-        data &= payload.str.toOpenArrayByte(0, payload.str.high())
-      of Binary:
-        data &= frameHeader.serialize(payload.bytes.len().uint64)
-        if conn.isClient():
-          data &= maskPayload(payload.bytes)
-        data &= payload.bytes
-      else:
-        discard
-      data
-  )
-
-
-proc serializeFragmented*(conn: WebSocketConn, fin: bool, payload: WebSocketPayload): WebSocketPayloadBytes =
+proc payloadToBytesFragmented*(conn: WebSocketConn, fin: bool, payload: WebSocketPayload): WebSocketPayloadBytes =
   WebSocketPayloadBytes(
     kind: payload.kind,
     data: block:
       var data: seq[byte]
       let frameHeader = WebSocketFrameHeader(
         fin: if fin: 1 else: 0,
-        opcode: 0,
-        isMasked: if conn.isServer(): 0 else: 1,
+        opcode: payload.kind.toByte(),
+        isMasked: if conn.isClient(): 1 else: 0,
         payloadLen: 0,
       )
       case payload.kind
@@ -473,12 +450,22 @@ proc send*(conn: WebSocketConn, payloadBytes: WebSocketPayloadBytes): Future[voi
     fut.complete()
     fut
   else:
+    let fin = (payloadBytes.data[0] shr 7) == 1
+
+    if fin:
+      conn.isSendingFragmented = false
+
+    if not conn.isSendingFragmented and not fin:
+      conn.isSendingFragmented = true
+    elif conn.isSendingFragmented:
+      payloadBytes.data[0] = payloadBytes.data[0].bitand(0b1000_0000) # set opcode to zero
+
     conn.socket.send(payloadBytes.data[0].addr(), payloadBytes.data.len())
 
 
 proc close*(conn: WebSocketConn, code: uint16) {.async.} =
   ## Send the close frame and close the tcp socket.
   if not conn.isClosed():
-    let payload = conn.serializeSingle(WebSocketPayload(kind: Close, code: code))
+    let payload = conn.payloadToBytes(WebSocketPayload(kind: Close, code: code))
     await conn.send(payload)
     conn.deinit()

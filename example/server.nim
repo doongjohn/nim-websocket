@@ -5,10 +5,10 @@ import ../src/websocket
 
 proc webSocketLoop(conn: WebSocketConn) {.async.} =
   try:
-    let payload1 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "1 message from server!"))
-    let payload2 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "2 message from server!"))
-    let payload3 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "3 message from server!"))
-    let payload4 = conn.serializeSingle(WebSocketPayload(kind: Text, str: "4 message from server!"))
+    let payload1 = conn.payloadToBytes(WebSocketPayload(kind: Text, str: "1 message from server!"))
+    let payload2 = conn.payloadToBytes(WebSocketPayload(kind: Text, str: "2 message from server!"))
+    let payload3 = conn.payloadToBytes(WebSocketPayload(kind: Text, str: "3 message from server!"))
+    let payload4 = conn.payloadToBytes(WebSocketPayload(kind: Text, str: "4 message from server!"))
     await all([
       conn.send(payload1),
       conn.send(payload2),
@@ -34,7 +34,7 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
           break
         of Ping:
           echo "recv ping: ", payload.pingBytes
-          var pongPayload = conn.serializeSingle(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
+          var pongPayload = conn.payloadToBytes(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
           await conn.send(pongPayload)
         of Pong:
           echo "recv pong: ", payload.pongBytes

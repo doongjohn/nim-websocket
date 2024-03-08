@@ -1,3 +1,4 @@
+import std/strformat
 import std/asyncdispatch
 import std/asynchttpserver
 import ../src/websocket
@@ -16,7 +17,10 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
         case payload.kind:
         of Text:
           echo "recv text: ", payload.str
-          let textPayload = conn.serializeSingle(WebSocketPayload(kind: Text, str: "client: text recv success!"))
+          let textPayload = conn.payloadToBytes(WebSocketPayload(
+            kind: Text,
+            str: "client text recv success: {payload.str}".fmt(),
+          ))
           await conn.send(textPayload)
         of Binary:
           echo "recv binary: ", payload.bytes
@@ -25,7 +29,7 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
           break
         of Ping:
           echo "recv ping: ", payload.pingBytes
-          var pongPayload = conn.serializeSingle(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
+          var pongPayload = conn.payloadToBytes(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
           await conn.send(pongPayload)
         of Pong:
           echo "recv pong: ", payload.pongBytes
@@ -59,7 +63,7 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
 
 proc main {.async.} =
   echo "websocket client start"
-  let conn = await connect("ws://localhost:8001/test", "")
+  let conn = await webSocketConnect("ws://localhost:8001/test", "")
   if not conn.isNil():
     await conn.webSocketLoop()
 
