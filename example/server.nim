@@ -74,9 +74,9 @@ proc acceptCallback(req: Request) {.async.} =
 
 
 proc main {.async.} =
+  echo "websocket server start"
   var server = newAsyncHttpServer()
   server.listen(Port(8001), "localhost")
-  echo "websocket server start"
   while true:
     if server.shouldAcceptRequest():
       await server.acceptRequest(acceptCallback)
