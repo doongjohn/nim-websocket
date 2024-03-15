@@ -18,8 +18,7 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
 
     while not conn.isClosed():
       let frameHeader = await conn.recvFrameHeader()
-
-      if not conn.isValidMask(frameHeader):
+      if not conn.isMaskValid(frameHeader):
         await conn.close(1002'u16)
         break
 
@@ -50,9 +49,9 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
             echo "recv text (fragmented): ", payload.str
         of Binary:
           if frameHeader.isFin():
-            echo "recv binary (fragmented last): ", payload.str
+            echo "recv binary (fragmented last): ", payload.bytes
           else:
-            echo "recv binary (fragmented): ", payload.str
+            echo "recv binary (fragmented): ", payload.bytes
         else:
           discard
 

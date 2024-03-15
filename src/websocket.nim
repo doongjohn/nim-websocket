@@ -129,7 +129,7 @@ proc isClient*(conn: WebSocketConn): bool =
   conn.role == Client
 
 
-proc isValidMask*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): bool =
+proc isMaskValid*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): bool =
   ## The server MUST close the connection upon receiving a
   ## frame that is not masked.  In this case, a server MAY send a Close
   ## frame with a status code of 1002 (protocol error) as defined in
