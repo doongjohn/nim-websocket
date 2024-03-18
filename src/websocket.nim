@@ -39,14 +39,10 @@ type
     case kind*: WebSocketPayloadType
     of Text:
       str*: string
-    of Binary:
+    of Binary, Ping, Pong:
       bytes*: seq[byte]
     of Close:
       code*: uint16
-    of Ping:
-      pingBytes*: seq[byte]
-    of Pong:
-      pongBytes*: seq[byte]
     of Invalid:
       discard
 
@@ -129,7 +125,7 @@ proc isClient*(conn: WebSocketConn): bool =
   conn.role == Client
 
 
-proc isMaskValid*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): bool =
+proc hasValidMask*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): bool =
   ## The server MUST close the connection upon receiving a
   ## frame that is not masked.  In this case, a server MAY send a Close
   ## frame with a status code of 1002 (protocol error) as defined in
@@ -342,8 +338,8 @@ proc recvFramePayload*(conn: WebSocketConn, frameHeader: WebSocketFrameHeader): 
   of 0x1: WebSocketPayload(kind: Text, str: stringFromBytes(conn.recvPayloadBuf))
   of 0x2: WebSocketPayload(kind: Binary, bytes: conn.recvPayloadBuf)
   of 0x8: WebSocketPayload(kind: Close, code: fromBigEndian[uint16](conn.recvPayloadBuf[0].addr()))
-  of 0x9: WebSocketPayload(kind: Ping, pingBytes: conn.recvPayloadBuf)
-  of 0xA: WebSocketPayload(kind: Pong, pongBytes: conn.recvPayloadBuf)
+  of 0x9: WebSocketPayload(kind: Ping, bytes: conn.recvPayloadBuf)
+  of 0xA: WebSocketPayload(kind: Pong, bytes: conn.recvPayloadBuf)
   else: WebSocketPayload(kind: Invalid)
 
 
@@ -385,7 +381,7 @@ proc serialize*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloa
         if conn.isClient():
           data &= maskPayload(payload.str)
         data &= payload.str.toOpenArrayByte(0, payload.str.high())
-      of Binary:
+      of Binary, Ping, Pong:
         data &= frameHeader.serialize(payload.bytes.len().uint64)
         if conn.isClient():
           data &= maskPayload(payload.bytes)
@@ -397,16 +393,6 @@ proc serialize*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloa
         if conn.isClient():
           data &= maskPayload(codeBuf)
         data &= codeBuf
-      of Ping:
-        data &= frameHeader.serialize(payload.pingBytes.len().uint64)
-        if conn.isClient():
-          data &= maskPayload(payload.pingBytes)
-        data &= payload.pingBytes
-      of Pong:
-        data &= frameHeader.serialize(payload.pongBytes.len().uint64)
-        if conn.isClient():
-          data &= maskPayload(payload.pongBytes)
-        data &= payload.pongBytes
       of Invalid:
         discard
       data

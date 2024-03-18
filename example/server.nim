@@ -18,7 +18,7 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
 
     while not conn.isClosed():
       let frameHeader = await conn.recvFrameHeader()
-      if not conn.isMaskValid(frameHeader):
+      if not conn.hasValidMask(frameHeader):
         await conn.close(1002)
         break
 
@@ -28,14 +28,14 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
           echo "recv text: ", payload.str
         of Binary:
           echo "recv binary: ", payload.bytes
+        of Ping:
+          echo "recv ping: ", payload.bytes
+          await conn.send(WebSocketPayload(kind: Pong, bytes: payload.bytes))
+        of Pong:
+          echo "recv pong: ", payload.bytes
         of Close:
           echo "recv close: ", payload.code
           break
-        of Ping:
-          echo "recv ping: ", payload.pingBytes
-          await conn.send(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
-        of Pong:
-          echo "recv pong: ", payload.pongBytes
         of Invalid:
           discard
 
