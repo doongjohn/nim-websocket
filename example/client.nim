@@ -1,4 +1,5 @@
 import std/strformat
+import std/random
 import std/asyncdispatch
 import std/asynchttpserver
 import ../src/websocket
@@ -6,6 +7,8 @@ import ../src/websocket
 
 proc webSocketLoop(conn: WebSocketConn) {.async.} =
   try:
+    await conn.send(WebSocketPayload(kind: Ping, bytes: @[]))
+
     while not conn.isClosed():
       let frameHeader = await conn.recvFrameHeader()
       if not conn.hasValidMask(frameHeader):
@@ -60,6 +63,7 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
 
 proc main {.async.} =
   echo "websocket client start"
+  randomize()
 
   const url = "ws://localhost:8001/test"
   var conn = await webSocketConnect(url, "")

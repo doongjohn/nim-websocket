@@ -1,3 +1,4 @@
+import std/random
 import std/asyncdispatch
 import std/asynchttpserver
 import ../src/websocket
@@ -5,10 +6,12 @@ import ../src/websocket
 
 proc webSocketLoop(conn: WebSocketConn) {.async.} =
   try:
-    let payload1 = conn.serialize(WebSocketPayload(kind: Text, str: "1 message from server!"))
-    let payload2 = conn.serialize(WebSocketPayload(kind: Text, str: "2 message from server!"))
-    let payload3 = conn.serialize(WebSocketPayload(kind: Text, str: "3 message from server!"))
-    let payload4 = conn.serialize(WebSocketPayload(kind: Text, str: "4 message from server!"))
+    let
+      payload1 = conn.serialize(WebSocketPayload(kind: Text, str: "1 message from server!"))
+      payload2 = conn.serialize(WebSocketPayload(kind: Text, str: "2 message from server!"))
+      payload3 = conn.serialize(WebSocketPayload(kind: Text, str: "3 message from server!"))
+      payload4 = conn.serialize(WebSocketPayload(kind: Text, str: "4 message from server!"))
+
     await all([
       conn.send(payload1),
       conn.send(payload2),
@@ -73,6 +76,7 @@ proc acceptCallback(req: Request) {.async.} =
 
 proc main {.async.} =
   echo "websocket server start"
+  randomize()
 
   var server = newAsyncHttpServer()
   server.listen(Port(8001), "localhost")

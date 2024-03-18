@@ -154,16 +154,16 @@ proc deinit*(conn: WebSocketConn) =
 
 
 proc webSocketConnect*(url: Uri | string, protocol: string): Future[WebSocketConn] {.async.} =
-  randomize()
-  var client = newAsyncHttpClient()
-
+  ## Try to connect to url.
+  ## Returns nil if it fails.
+  ## Must call `std/random randomize()` before calling this function.
   try:
-    var rndNums: array[16, uint8]
-    for n in rndNums.mitems():
-      n = rand(0'u8 .. uint8.high())
+    var randNums: array[16, uint8]
+    for num in randNums.mitems():
+      num = rand(0'u8 .. uint8.high())
 
-    let webSocketKey = rndNums.encode()
-    let acceptKey = base64.encode(cast[array[20, uint8]](secureHash(webSocketKey & magicString)))
+    let webSocketKey = randNums.encode()
+    let acceptKey = base64.encode(secureHash(webSocketKey & magicString).Sha1Digest)
 
     let headers = newHttpHeaders({
       "Host": $url,
@@ -175,6 +175,7 @@ proc webSocketConnect*(url: Uri | string, protocol: string): Future[WebSocketCon
     if protocol != "":
       headers.add("Sec-WebSocket-Protocol", protocol)
 
+    let client = newAsyncHttpClient()
     let resp = await client.request(url, httpMethod = HttpGet, headers = headers, body = "")
 
     # TODO: more checks
@@ -208,7 +209,7 @@ proc webSocketHandshake*(req: Request, protocol: string): Future[bool] {.async.}
     await req.respond(Http400, "", newHttpHeaders())
     return false
 
-  let acceptKey = base64.encode(cast[array[20, uint8]](secureHash(webSocketKey & magicString)))
+  let acceptKey = base64.encode(secureHash(webSocketKey & magicString).Sha1Digest)
 
   await req.respond(Http101, "", newHttpHeaders({
     "Upgrade": "websocket",
@@ -221,7 +222,7 @@ proc webSocketHandshake*(req: Request, protocol: string): Future[bool] {.async.}
 proc webSocketAccept*(req: Request, protocol: string): Future[WebSocketConn] {.async.} =
   ## Try handshake and return WebSocketConn.
   ## Return nil if handshake fails.
-  randomize()
+  ## Must call `std/random randomize()` before calling this function.
   if await webSocketHandshake(req, protocol):
     newWebSocketServer(req.client)
   else:
