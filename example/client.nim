@@ -9,18 +9,17 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
     while not conn.isClosed():
       let frameHeader = await conn.recvFrameHeader()
       if not conn.isMaskValid(frameHeader):
-        await conn.close(1002'u16)
+        await conn.close(1002)
         break
 
       conn.recvPayloadSingle(frameHeader):
         case payload.kind:
         of Text:
           echo "recv text: ", payload.str
-          let textPayload = conn.payloadToBytes(WebSocketPayload(
+          await conn.send(WebSocketPayload(
             kind: Text,
             str: "client text recv success: {payload.str}".fmt(),
           ))
-          await conn.send(textPayload)
         of Binary:
           echo "recv binary: ", payload.bytes
         of Close:
@@ -28,8 +27,7 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
           break
         of Ping:
           echo "recv ping: ", payload.pingBytes
-          var pongPayload = conn.payloadToBytes(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
-          await conn.send(pongPayload)
+          await conn.send(WebSocketPayload(kind: Pong, pongBytes: payload.pingBytes))
         of Pong:
           echo "recv pong: ", payload.pongBytes
         of Invalid:
@@ -63,12 +61,12 @@ proc webSocketLoop(conn: WebSocketConn) {.async.} =
 proc main {.async.} =
   echo "websocket client start"
 
-  var conn: WebSocketConn
+  const url = "ws://localhost:8001/test"
+  var conn = await webSocketConnect(url, "")
   while conn.isNil():
-    conn = await webSocketConnect("ws://localhost:8001/test", "")
-    if conn.isNil():
-      echo "connecting..."
-      await sleepAsync(1000)
+    await sleepAsync(1000)
+    echo "connecting..."
+    conn = await webSocketConnect(url, "")
 
   await conn.webSocketLoop()
 

@@ -368,7 +368,7 @@ template recvPayloadFragmented*(conn: WebSocketConn, frameHeader: WebSocketFrame
           curFrameHeader = await conn.recvFrameHeader()
 
 
-proc payloadToBytes*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloadBytes =
+proc serialize*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketPayloadBytes =
   WebSocketPayloadBytes(
     kind: payload.kind,
     data: block:
@@ -413,7 +413,7 @@ proc payloadToBytes*(conn: WebSocketConn, payload: WebSocketPayload): WebSocketP
   )
 
 
-proc payloadToBytesFragmented*(conn: WebSocketConn, fin: bool, payload: WebSocketPayload): WebSocketPayloadBytes =
+proc serializeFragmented*(conn: WebSocketConn, fin: bool, payload: WebSocketPayload): WebSocketPayloadBytes =
   WebSocketPayloadBytes(
     kind: payload.kind,
     data: block:
@@ -463,9 +463,15 @@ proc send*(conn: WebSocketConn, payloadBytes: WebSocketPayloadBytes): Future[voi
     conn.socket.send(payloadBytes.data[0].addr(), payloadBytes.data.len())
 
 
+proc send*(conn: WebSocketConn, payload: WebSocketPayload) {.async.} =
+  ## Send data via tcp socket.
+  let payloadBytes = conn.serialize(payload)
+  await conn.send(payloadBytes)
+
+
 proc close*(conn: WebSocketConn, code: uint16) {.async.} =
   ## Send the close frame and close the tcp socket.
   if not conn.isClosed():
-    let payload = conn.payloadToBytes(WebSocketPayload(kind: Close, code: code))
+    let payload = conn.serialize(WebSocketPayload(kind: Close, code: code))
     await conn.send(payload)
     conn.deinit()
