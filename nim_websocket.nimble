@@ -14,5 +14,8 @@ requires "checksums"
 
 
 task build_example, "build example server and client":
-  exec "nim c -o:build/server.exe example/server.nim"
-  exec "nim c -o:build/client.exe example/client.nim"
+  echo "building server"
+  exec "nim c --hints:off -o:build/server.exe example/server.nim"
+
+  echo "building client"
+  exec "nim c --hints:off -o:build/client.exe example/client.nim"
